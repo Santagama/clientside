@@ -1,41 +1,50 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Interactive Map Indonesia</title>
-    <link rel="stylesheet" href="css/style.css">
+  <meta charset="UTF-8">
+  <title>Interactive Map Indonesia</title>
+  <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
 
-<aside id="sidebar">
+  <!-- Sidebar kiri: form pencarian rute -->
+  <aside id="sidebar">
     <h2>Find Route</h2>
+
     <div class="form-group">
-        <label>From</label>
-        <input type="text" id="from-input" placeholder="Pinpoint name" autocomplete="off">
+      <label>From</label>
+      <input type="text" id="from-input" placeholder="Pinpoint name" autocomplete="off">
     </div>
+
     <div class="form-group">
-        <label>To</label>
-        <input type="text" id="to-input" placeholder="Pinpoint name" autocomplete="off">
+      <label>To</label>
+      <input type="text" id="to-input" placeholder="Pinpoint name" autocomplete="off">
     </div>
+
+    <!-- Tombol sort hasil rute -->
     <div class="sort-group">
-        <span>Sort by</span>
-        <button id="sort-fastest" class="sort-btn active">Fastest</button>
-        <button id="sort-cheapest" class="sort-btn">Cheapest</button>
+      <span>Sort by</span>
+      <button id="sort-fastest" class="sort-btn active">Fastest</button>
+      <button id="sort-cheapest" class="sort-btn">Cheapest</button>
     </div>
+
     <button id="search-btn" disabled>Search</button>
+
+    <!-- Hasil rute ditampilkan di sini oleh JS -->
     <div id="route-results"></div>
-</aside>
+  </aside>
 
-<main id="viewport">
+  <!-- Area peta utama -->
+  <main id="viewport">
+    <!-- Div ini yang di-transform saat pan & zoom -->
     <div id="map-transform">
-        <div id="map-layer"></div>
-        <svg id="connections-layer" xmlns="http://www.w3.org/2000/svg"></svg>
-        <div id="pins-layer"></div>
-        <div id="popups-layer"></div>
+      <div id="map-layer"></div>          <!-- SVG peta Indonesia dimuat di sini -->
+      <svg id="connections-layer"></svg>  <!-- Garis koneksi antar pin -->
+      <div id="pins-layer"></div>         <!-- Pin-pin lokasi -->
+      <div id="popups-layer"></div>       <!-- Popup add pin / connect -->
     </div>
-</main>
+  </main>
 
-<script src="js/app.js"></script>
+  <script src="js/app.js"></script>
 </body>
 </html>
