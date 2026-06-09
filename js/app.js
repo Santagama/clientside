@@ -1,66 +1,105 @@
-// ==============================================
-// LKS 2026 - Client Side Module
-// Interactive Map of Indonesia
-// ==============================================
+// ═══════════════════════════════════════
+//  CONFIG
+// ═══════════════════════════════════════
 
+// Ukuran asli SVG peta Indonesia
 var MAP_W = 792.54596;
 var MAP_H = 316.66394;
 
-// Transport modes sesuai kisi-kisi
+// Mode transportasi: warna garis, kecepatan (km/h), biaya per km
 var TRANSPORT = {
     train:    { label: 'Train',    color: '#33E339', speed: 120, cost: 500  },
     bus:      { label: 'Bus',      color: '#A83BE8', speed: 80,  cost: 100  },
     airplane: { label: 'Airplane', color: '#000000', speed: 800, cost: 1000 }
 };
 
-// Data persistent dari localStorage
+
+// ═══════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════
+
+// Data pin dan koneksi — disimpan di localStorage agar tidak hilang saat refresh
 var pins  = JSON.parse(localStorage.getItem('lks_pins')  || '{}');
 var conns = JSON.parse(localStorage.getItem('lks_conns') || '[]');
 
-// State peta
-var scale = 1, panX = 0, panY = 0;
-var panning = false, panStartX, panStartY, panOriginX, panOriginY;
-var connectingId = null;
-var selectedConn = null;
-var sortMode = 'fastest';
+// Pan & zoom
+var scale      = 1;
+var panX       = 0;
+var panY       = 0;
+var panning    = false;
+var panStartX, panStartY, panOriginX, panOriginY;
 
-// DOM
-var viewport     = document.getElementById('viewport');
-var mapTransform = document.getElementById('map-transform');
-var connLayer    = document.getElementById('connections-layer');
-var pinLayer     = document.getElementById('pins-layer');
-var popupLayer   = document.getElementById('popups-layer');
-var fromInput    = document.getElementById('from-input');
-var toInput      = document.getElementById('to-input');
-var searchBtn    = document.getElementById('search-btn');
-var routeDiv     = document.getElementById('route-results');
-var btnFastest   = document.getElementById('sort-fastest');
-var btnCheapest  = document.getElementById('sort-cheapest');
+// Interaksi
+var connectingId = null;   // id pin yang sedang mode "pilih tujuan koneksi"
+var selectedConn = null;   // id koneksi yang sedang dipilih (bisa dihapus)
+var sortMode     = 'fastest';
 
-// ---- Helpers ----
 
+// ═══════════════════════════════════════
+//  DOM REFERENCES
+// ═══════════════════════════════════════
+
+function $(id) { return document.getElementById(id); }
+
+var viewport     = $('viewport');
+var mapTransform = $('map-transform');
+var connLayer    = $('connections-layer');
+var pinLayer     = $('pins-layer');
+var popupLayer   = $('popups-layer');
+var fromInput    = $('from-input');
+var toInput      = $('to-input');
+var searchBtn    = $('search-btn');
+var routeDiv     = $('route-results');
+var btnFastest   = $('sort-fastest');
+var btnCheapest  = $('sort-cheapest');
+
+
+// ═══════════════════════════════════════
+//  HELPERS
+// ═══════════════════════════════════════
+
+// Simpan data ke localStorage
 function save() {
     localStorage.setItem('lks_pins',  JSON.stringify(pins));
     localStorage.setItem('lks_conns', JSON.stringify(conns));
 }
 
+// Buat ID unik untuk pin / koneksi baru
 function makeId() {
     return 'p' + Date.now() + Math.random().toString(36).slice(2, 6);
 }
 
+// Shortcut createElement — bisa set attrs dan teks sekaligus
+function el(tag, attrs, text) {
+    var e = document.createElement(tag);
+    for (var k in attrs) e[k] = attrs[k];
+    if (text) e.textContent = text;
+    return e;
+}
+
+// Shortcut createElement untuk SVG (butuh namespace berbeda)
+function svgEl(tag, attrs) {
+    var e = document.createElementNS('http://www.w3.org/2000/svg', tag);
+    for (var k in attrs) e.setAttribute(k, attrs[k]);
+    return e;
+}
+
+// Terapkan posisi pan dan level zoom ke map-transform
 function applyTransform() {
     mapTransform.style.transform =
         'translate(' + panX + 'px,' + panY + 'px) scale(' + scale + ')';
 }
 
+// Sesuaikan skala awal agar peta mengisi viewport
 function fitMap() {
     var r = viewport.getBoundingClientRect();
     scale = Math.max(r.width / MAP_W, r.height / MAP_H);
-    panX = (r.width  - MAP_W * scale) / 2;
-    panY = (r.height - MAP_H * scale) / 2;
+    panX  = (r.width  - MAP_W * scale) / 2;
+    panY  = (r.height - MAP_H * scale) / 2;
     applyTransform();
 }
 
+// Konversi koordinat layar → koordinat di dalam peta (mempertimbangkan pan & zoom)
 function toMapCoord(cx, cy) {
     var r = viewport.getBoundingClientRect();
     return {
@@ -69,17 +108,20 @@ function toMapCoord(cx, cy) {
     };
 }
 
+// Zoom masuk/keluar berpusat di titik (cx, cy) layar
 function zoomAt(cx, cy, dir) {
-    var r  = viewport.getBoundingClientRect();
-    var mx = cx - r.left, my = cy - r.top;
+    var r    = viewport.getBoundingClientRect();
+    var mx   = cx - r.left;
+    var my   = cy - r.top;
     var mapX = (mx - panX) / scale;
     var mapY = (my - panY) / scale;
     scale = Math.min(12, Math.max(0.3, scale * (dir > 0 ? 1.15 : 1 / 1.15)));
-    panX = mx - mapX * scale;
-    panY = my - mapY * scale;
+    panX  = mx - mapX * scale;
+    panY  = my - mapY * scale;
     applyTransform();
 }
 
+// Cari pin berdasarkan nama (case-insensitive)
 function getPinByName(name) {
     var n = name.trim().toLowerCase();
     for (var id in pins) {
@@ -88,47 +130,59 @@ function getPinByName(name) {
     return null;
 }
 
+// Aktifkan tombol Search hanya jika From dan To valid dan berbeda
 function validateSearch() {
     var a = getPinByName(fromInput.value);
     var b = getPinByName(toInput.value);
     searchBtn.disabled = !(a && b && a.id !== b.id);
 }
 
+// Hapus semua popup dari layar
 function closePopups() {
     popupLayer.innerHTML = '';
 }
 
-function hasClass(el, cls) {
-    var c = el.className;
-    var s = (typeof c === 'string') ? c : (c && c.baseVal ? c.baseVal : '');
-    return s.indexOf(cls) !== -1;
+// Format durasi menjadi "2h 30m" atau "45m"
+function fmtHours(h) {
+    if (h < 1) return Math.round(h * 60) + 'm';
+    var f = Math.floor(h);
+    var m = Math.round((h - f) * 60);
+    return f + 'h' + (m > 0 ? ' ' + m + 'm' : '');
 }
 
-// ---- Load SVG Map ----
+// Format biaya dalam Rupiah
+function fmtCost(n) {
+    return 'Rp' + n.toLocaleString('id-ID');
+}
+
+
+// ═══════════════════════════════════════
+//  LOAD PETA SVG
+// ═══════════════════════════════════════
 
 function loadMap() {
     var xhr = new XMLHttpRequest();
     xhr.open('GET', 'assets/indonesia.svg', true);
-    xhr.onload = function() {
-        var text = xhr.responseText
+    xhr.onload = function () {
+        // Bersihkan deklarasi XML sebelum dimasukkan ke innerHTML
+        $('map-layer').innerHTML = xhr.responseText
             .replace(/<\?xml[^?]*\?>/g, '')
             .replace(/<!--[\s\S]*?-->/g, '');
-        document.getElementById('map-layer').innerHTML = text;
-    };
-    xhr.onerror = function() {
-        document.getElementById('map-layer').innerHTML =
-            '<img src="assets/indonesia.svg" style="width:100%;height:100%;">';
     };
     xhr.send();
 }
 
-// ---- Render Connections ----
+
+// ═══════════════════════════════════════
+//  RENDER KONEKSI
+// ═══════════════════════════════════════
 
 function renderConns() {
     connLayer.innerHTML = '';
 
-    // Hitung jumlah koneksi per pasangan pin (untuk parallel offset)
-    var pairCount = {}, pairIdx = {};
+    // Hitung jumlah koneksi per pasangan pin (untuk offset garis paralel)
+    var pairCount = {};
+    var pairIdx   = {};
     for (var i = 0; i < conns.length; i++) {
         var k = [conns[i].from, conns[i].to].sort().join('|');
         pairCount[k] = (pairCount[k] || 0) + 1;
@@ -136,148 +190,114 @@ function renderConns() {
 
     for (var j = 0; j < conns.length; j++) {
         var c = conns[j];
-        var a = pins[c.from], b = pins[c.to];
-        if (!a || !b) continue;
+        var a = pins[c.from];
+        var b = pins[c.to];
+        if (!a || !b || !TRANSPORT[c.mode]) continue;
 
-        var k2  = [c.from, c.to].sort().join('|');
-        var idx = pairIdx[k2] || 0;
-        pairIdx[k2] = idx + 1;
-        var total   = pairCount[k2];
-        var spacing = 8;
-        var offset  = (idx - (total - 1) / 2) * spacing;
-        var dx = b.x - a.x, dy = b.y - a.y;
-        var len = Math.sqrt(dx*dx + dy*dy) || 1;
-        var ox = (-dy / len) * offset, oy = (dx / len) * offset;
+        // Offset agar garis paralel tidak tumpang tindih
+        var key = [c.from, c.to].sort().join('|');
+        var idx = pairIdx[key] || 0;
+        pairIdx[key] = idx + 1;
+        var off = (idx - (pairCount[key] - 1) / 2) * 8;
+        var dx  = b.x - a.x;
+        var dy  = b.y - a.y;
+        var len = Math.sqrt(dx * dx + dy * dy) || 1;
+        var ox  = (-dy / len) * off;
+        var oy  = ( dx / len) * off;
 
-        var x1 = a.x + ox, y1 = a.y + oy;
-        var x2 = b.x + ox, y2 = b.y + oy;
-        var spec = TRANSPORT[c.mode];
-        if (!spec) continue;
+        var x1 = a.x + ox;
+        var y1 = a.y + oy;
+        var x2 = b.x + ox;
+        var y2 = b.y + oy;
+        var mx = (x1 + x2) / 2;
+        var my = (y1 + y2) / 2;
 
-        // Garis koneksi
-        var line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-        line.setAttribute('x1', x1); line.setAttribute('y1', y1);
-        line.setAttribute('x2', x2); line.setAttribute('y2', y2);
-        line.setAttribute('stroke', spec.color);
-        line.setAttribute('stroke-width', selectedConn === c.id ? '5' : '3');
-        line.setAttribute('class', 'conn-line' + (selectedConn === c.id ? ' selected' : ''));
-        line.dataset.id = c.id;
-        line.addEventListener('click', function(e) {
+        // Gambar garis
+        var line = svgEl('line', {
+            x1: x1, y1: y1, x2: x2, y2: y2,
+            stroke: TRANSPORT[c.mode].color,
+            'stroke-width': selectedConn === c.id ? '5' : '3',
+            class: 'conn-line' + (selectedConn === c.id ? ' selected' : ''),
+            'data-id': c.id
+        });
+        line.addEventListener('click', function (e) {
             e.stopPropagation();
-            selectedConn = this.dataset.id;
-            if (document.activeElement && document.activeElement !== document.body) {
-                document.activeElement.blur();
-            }
+            selectedConn = this.getAttribute('data-id');
             renderConns();
         });
         connLayer.appendChild(line);
 
         // Label jarak di tengah garis
-        var mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
         var tw = String(c.distance).length * 7 + 10;
-
-        var bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-        bg.setAttribute('x', mx - tw/2); bg.setAttribute('y', my - 7);
-        bg.setAttribute('width', tw);    bg.setAttribute('height', 14);
-        bg.setAttribute('fill', '#333'); bg.setAttribute('rx', 2);
-        connLayer.appendChild(bg);
-
-        var txt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        txt.setAttribute('x', mx); txt.setAttribute('y', my);
-        txt.setAttribute('class', 'dist-label');
+        connLayer.appendChild(svgEl('rect', {
+            x: mx - tw / 2, y: my - 7,
+            width: tw, height: 14,
+            fill: '#333', rx: 2
+        }));
+        var txt = svgEl('text', { x: mx, y: my, class: 'dist-label' });
         txt.textContent = c.distance;
         connLayer.appendChild(txt);
     }
 }
 
-// ---- Render Pins ----
 
-function makePinSVG() {
-    var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svg.setAttribute('viewBox', '0 0 24 36');
-    svg.setAttribute('class', 'pin-icon');
-    var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    path.setAttribute('fill', '#e53935');
-    path.setAttribute('d', 'M12 0C5.4 0 0 5.4 0 12c0 9 12 24 12 24S24 21 24 12C24 5.4 18.6 0 12 0zm0 17c-2.8 0-5-2.2-5-5s2.2-5 5-5 5 2.2 5 5-2.2 5-5 5z');
-    svg.appendChild(path);
-    return svg;
-}
+// ═══════════════════════════════════════
+//  RENDER PIN
+// ═══════════════════════════════════════
+
+// Event delegation — satu listener untuk semua pin, tidak perlu listener per-pin
+pinLayer.addEventListener('click', function (e) {
+    var wrap = e.target.closest('.pin-wrapper');
+    if (!wrap) return;
+    var pid = wrap.dataset.id;
+
+    if (e.target.classList.contains('btn-conn')) {
+        // Toggle mode connecting
+        e.stopPropagation();
+        connectingId = (connectingId === pid) ? null : pid;
+        closePopups();
+        renderPins();
+
+    } else if (e.target.classList.contains('btn-del')) {
+        // Hapus pin beserta semua koneksinya
+        e.stopPropagation();
+        delete pins[pid];
+        conns = conns.filter(function (c) { return c.from !== pid && c.to !== pid; });
+        if (connectingId === pid) connectingId = null;
+        save();
+        renderConns();
+        renderPins();
+        validateSearch();
+
+    } else if (connectingId && connectingId !== pid) {
+        // Klik pin lain saat mode connecting → buka popup koneksi
+        e.stopPropagation();
+        showConnectPopup(connectingId, pid);
+    }
+});
 
 function renderPins() {
     pinLayer.innerHTML = '';
 
     for (var id in pins) {
-        var pin = pins[id];
-
-        var wrap = document.createElement('div');
-        wrap.className = 'pin-wrapper' + (connectingId === pin.id ? ' connecting' : '');
+        var pin  = pins[id];
+        var wrap = el('div', {
+            className: 'pin-wrapper' + (connectingId === pin.id ? ' connecting' : '')
+        });
         wrap.style.left = pin.x + 'px';
         wrap.style.top  = pin.y + 'px';
+        wrap.dataset.id = pin.id;
 
-        // Label: nama + tombol connect + tombol delete
-        var label = document.createElement('div');
-        label.className = 'pin-label';
+        // Label: nama + tombol Connect dan Delete
+        var label = el('div', { className: 'pin-label' });
+        label.innerHTML =
+            '<span>' + pin.name + '</span>' +
+            '<button class="pin-btn btn-conn" title="Connect">&#8646;</button>' +
+            '<button class="pin-btn btn-del"  title="Delete">&#128465;</button>';
 
-        var nameSpan = document.createElement('span');
-        nameSpan.textContent = pin.name;
-        label.appendChild(nameSpan);
-
-        // Tombol Connect (⇆)
-        var btnConn = document.createElement('button');
-        btnConn.className = 'pin-btn';
-        btnConn.title = 'Connect';
-        btnConn.innerHTML = '&#8646;'; // ⇆
-        ;(function(pid) {
-            btnConn.addEventListener('click', function(e) {
-                e.stopPropagation();
-                connectingId = (connectingId === pid) ? null : pid;
-                closePopups();
-                renderPins();
-            });
-        })(pin.id);
-        label.appendChild(btnConn);
-
-        // Tombol Delete (trash icon)
-        var btnDel = document.createElement('button');
-        btnDel.className = 'pin-btn';
-        btnDel.title = 'Delete';
-        btnDel.innerHTML = '&#128465;'; // 🗑
-        ;(function(pid) {
-            btnDel.addEventListener('click', function(e) {
-                e.stopPropagation();
-                delete pins[pid];
-                conns = conns.filter(function(c) {
-                    return c.from !== pid && c.to !== pid;
-                });
-                if (connectingId === pid) connectingId = null;
-                save();
-                renderAll();
-                validateSearch();
-            });
-        })(pin.id);
-        label.appendChild(btnDel);
-
-        // Klik label → connect ke pin ini
-        ;(function(pid) {
-            label.addEventListener('click', function(e) {
-                if (e.target.tagName === 'BUTTON') return;
-                e.stopPropagation();
-                if (connectingId && connectingId !== pid) {
-                    showConnectPopup(connectingId, pid);
-                }
-            });
-        })(pin.id);
-
-        // Icon pin merah
-        var icon = makePinSVG();
-        ;(function(pid) {
-            icon.addEventListener('click', function(e) {
-                e.stopPropagation();
-                if (connectingId && connectingId !== pid) {
-                    showConnectPopup(connectingId, pid);
-                }
-            });
-        })(pin.id);
+        // Icon pin merah (SVG inline)
+        var icon = svgEl('svg', { viewBox: '0 0 24 36', class: 'pin-icon' });
+        icon.innerHTML = '<path fill="#e53935" d="M12 0C5.4 0 0 5.4 0 12c0 9 12 24 12 24S24 21 24 12C24 5.4 18.6 0 12 0zm0 17c-2.8 0-5-2.2-5-5s2.2-5 5-5 5 2.2 5 5-2.2 5-5 5z"/>';
 
         wrap.appendChild(label);
         wrap.appendChild(icon);
@@ -285,143 +305,117 @@ function renderPins() {
     }
 }
 
-function renderAll() {
-    renderConns();
-    renderPins();
-}
 
-// ---- Popups ----
+// ═══════════════════════════════════════
+//  POPUP
+// ═══════════════════════════════════════
 
-function showAddPinPopup(x, y) {
-    closePopups();
-    var popup = makePopup('Add pinpoint', x, y);
-
-    var input = document.createElement('input');
-    input.type = 'text';
-    input.placeholder = 'Enter location name';
-    popup.body.appendChild(input);
-
-    var btn = document.createElement('button');
-    btn.className = 'popup-submit';
-    btn.textContent = 'Save';
-    popup.body.appendChild(btn);
-
-    function doSave(e) {
-        e.stopPropagation();
-        var name = input.value.trim();
-        if (!name) return;
-        var id = makeId();
-        pins[id] = { id: id, name: name, x: x, y: y };
-        save();
-        closePopups();
-        renderAll();
-        validateSearch();
-    }
-
-    btn.addEventListener('click', doSave);
-    input.addEventListener('keydown', function(e) {
-        if (e.key === 'Enter') { e.stopPropagation(); doSave(e); }
-    });
-
-    popupLayer.appendChild(popup.el);
-    setTimeout(function() { input.focus(); }, 0);
-}
-
-function showConnectPopup(fromId, toId) {
-    var a = pins[fromId], b = pins[toId];
-    if (!a || !b) return;
-    closePopups();
-    connectingId = null;
-    renderPins();
-
-    var mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
-    var popup = makePopup('Connect', mx, my);
-
-    var distInput = document.createElement('input');
-    distInput.type = 'number';
-    distInput.min = '1';
-    distInput.placeholder = 'Distance (km)';
-    popup.body.appendChild(distInput);
-
-    var sel = document.createElement('select');
-    sel.innerHTML = '<option value="" disabled selected>Choose mode</option>';
-    for (var m in TRANSPORT) {
-        var opt = document.createElement('option');
-        opt.value = m;
-        opt.textContent = TRANSPORT[m].label;
-        sel.appendChild(opt);
-    }
-    popup.body.appendChild(sel);
-
-    var btn = document.createElement('button');
-    btn.className = 'popup-submit';
-    btn.textContent = 'Submit';
-    btn.addEventListener('click', function(e) {
-        e.stopPropagation();
-        var dist = parseFloat(distInput.value);
-        if (!dist || dist <= 0 || !sel.value) return;
-        conns.push({ id: makeId(), from: fromId, to: toId, distance: dist, mode: sel.value });
-        save();
-        closePopups();
-        renderAll();
-    });
-    popup.body.appendChild(btn);
-
-    distInput.addEventListener('keydown', function(e) {
-        if (e.key === 'Enter') btn.click();
-    });
-
-    popupLayer.appendChild(popup.el);
-    distInput.focus();
-}
-
+// Buat kerangka popup dengan judul dan tombol ×
 function makePopup(title, x, y) {
-    var el = document.createElement('div');
-    el.className = 'map-popup';
-    el.style.left = x + 'px';
-    el.style.top  = y + 'px';
-
-    var header = document.createElement('div');
-    header.className = 'popup-header';
-
-    var h3 = document.createElement('h3');
-    h3.textContent = title;
-    header.appendChild(h3);
-
-    var closeBtn = document.createElement('button');
-    closeBtn.className = 'popup-close';
-    closeBtn.textContent = '×';
-    closeBtn.addEventListener('click', function(e) {
+    var p    = el('div', { className: 'map-popup' });
+    p.style.left = x + 'px';
+    p.style.top  = y + 'px';
+    p.innerHTML  =
+        '<div class="popup-header">' +
+            '<h3>' + title + '</h3>' +
+            '<button class="popup-close">&#215;</button>' +
+        '</div>';
+    p.querySelector('.popup-close').addEventListener('click', function (e) {
         e.stopPropagation();
         closePopups();
         connectingId = null;
         renderPins();
     });
-    header.appendChild(closeBtn);
-    el.appendChild(header);
-
-    var body = document.createElement('div');
-    body.style.display = 'flex';
-    body.style.flexDirection = 'column';
-    body.style.gap = '6px';
-    el.appendChild(body);
-
-    return { el: el, body: body };
+    return p;
 }
 
-// ---- Route Finding ----
+// Popup tambah pin baru (muncul saat double-click di peta)
+function showAddPinPopup(x, y) {
+    closePopups();
+    connectingId = null;
 
-// DFS cari semua rute dari startId ke endId
+    var p   = makePopup('Add pinpoint', x, y);
+    var inp = el('input', { type: 'text', placeholder: 'Enter location name' });
+    var btn = el('button', { className: 'popup-submit' }, 'Save');
+
+    function doSave(e) {
+        e.stopPropagation();
+        var name = inp.value.trim();
+        if (!name) return;
+        var id = makeId();
+        pins[id] = { id: id, name: name, x: x, y: y };
+        save();
+        closePopups();
+        renderConns();
+        renderPins();
+        validateSearch();
+    }
+
+    btn.addEventListener('click', doSave);
+    inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') doSave(e); });
+
+    p.appendChild(inp);
+    p.appendChild(btn);
+    popupLayer.appendChild(p);
+    setTimeout(function () { inp.focus(); }, 0);
+}
+
+// Popup koneksi dua pin (muncul setelah klik pin tujuan saat mode connecting)
+function showConnectPopup(fromId, toId) {
+    var a = pins[fromId];
+    var b = pins[toId];
+    if (!a || !b) return;
+
+    closePopups();
+    connectingId = null;
+    renderPins();
+
+    var p   = makePopup('Connect', (a.x + b.x) / 2, (a.y + b.y) / 2);
+    var inp = el('input', { type: 'number', min: '1', placeholder: 'Distance (km)' });
+    var sel = el('select', {});
+    sel.innerHTML = '<option value="" disabled selected>Choose mode</option>';
+    for (var m in TRANSPORT) {
+        sel.innerHTML += '<option value="' + m + '">' + TRANSPORT[m].label + '</option>';
+    }
+    var btn = el('button', { className: 'popup-submit' }, 'Submit');
+
+    btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var dist = parseFloat(inp.value);
+        if (!dist || dist <= 0 || !sel.value) return;
+        conns.push({ id: makeId(), from: fromId, to: toId, distance: dist, mode: sel.value });
+        save();
+        closePopups();
+        renderConns();
+        renderPins();
+    });
+    inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') btn.click(); });
+
+    p.appendChild(inp);
+    p.appendChild(sel);
+    p.appendChild(btn);
+    popupLayer.appendChild(p);
+    inp.focus();
+}
+
+
+// ═══════════════════════════════════════
+//  PENCARIAN RUTE (DFS)
+// ═══════════════════════════════════════
+
+// Cari semua rute dari startId ke endId menggunakan DFS rekursif
 function findRoutes(startId, endId) {
     var results = [];
+
     function dfs(cur, path, visited) {
-        if (cur === endId) { results.push(path.slice()); return; }
+        if (cur === endId) {
+            results.push(path.slice());
+            return;
+        }
         visited[cur] = true;
         for (var i = 0; i < conns.length; i++) {
-            var c = conns[i];
-            var next = null;
-            if (c.from === cur) next = c.to;
-            else if (c.to === cur) next = c.from;
+            var c    = conns[i];
+            var next = c.from === cur ? c.to : c.to === cur ? c.from : null;
             if (!next || visited[next]) continue;
             path.push(c);
             dfs(next, path, visited);
@@ -429,69 +423,43 @@ function findRoutes(startId, endId) {
         }
         delete visited[cur];
     }
+
     dfs(startId, [], {});
     return results;
 }
 
-function calcRoute(segs) {
-    var cost = 0, hours = 0;
-    for (var i = 0; i < segs.length; i++) {
-        var t = TRANSPORT[segs[i].mode];
-        if (!t) continue;
-        cost  += segs[i].distance * t.cost;
-        hours += segs[i].distance / t.speed;
-    }
-    return { cost: cost, hours: hours };
-}
-
-function buildSteps(segs, startId) {
-    var steps = [], cur = startId;
-    for (var i = 0; i < segs.length; i++) {
-        var next = (segs[i].from === cur) ? segs[i].to : segs[i].from;
-        steps.push(
-            (i + 1) + '. ' + pins[cur].name + ' \u2192 ' + pins[next].name +
-            ' (' + TRANSPORT[segs[i].mode].label + ', ' + segs[i].distance + ' km)'
-        );
-        cur = next;
-    }
-    return steps;
-}
-
-function buildName(segs, startId) {
-    var names = [pins[startId].name], cur = startId;
-    for (var i = 0; i < segs.length; i++) {
-        cur = (segs[i].from === cur) ? segs[i].to : segs[i].from;
-        names.push(pins[cur].name);
-    }
-    return names.join(' - ');
-}
-
-function fmtHours(h) {
-    if (h < 1) return Math.round(h * 60) + 'm';
-    var full = Math.floor(h);
-    var mins = Math.round((h - full) * 60);
-    return full + 'h' + (mins > 0 ? ' ' + mins + 'm' : '');
-}
-
-function fmtCost(n) {
-    return 'Rp' + n.toLocaleString('id-ID');
-}
-
+// Jalankan pencarian dan tampilkan hasil di sidebar
 function doSearch() {
     var a = getPinByName(fromInput.value);
     var b = getPinByName(toInput.value);
-    if (!a || !b) { routeDiv.innerHTML = '<p class="no-routes">Invalid pinpoint name.</p>'; return; }
+    if (!a || !b) return;
 
-    var raw = findRoutes(a.id, b.id);
-    var routes = raw.map(function(segs) {
-        var m = calcRoute(segs);
-        return { segs: segs, cost: m.cost, hours: m.hours };
+    var routes = findRoutes(a.id, b.id).map(function (segs) {
+        var cost  = 0;
+        var hours = 0;
+        var cur   = a.id;
+        var names = [pins[a.id].name];
+        var steps = [];
+
+        for (var i = 0; i < segs.length; i++) {
+            var s    = segs[i];
+            var t    = TRANSPORT[s.mode];
+            var next = s.from === cur ? s.to : s.from;
+            cost  += s.distance * t.cost;
+            hours += s.distance / t.speed;
+            steps.push(
+                (i + 1) + '. ' + pins[cur].name + ' \u2192 ' + pins[next].name +
+                ' (' + t.label + ', ' + s.distance + ' km)'
+            );
+            names.push(pins[next].name);
+            cur = next;
+        }
+        return { name: names.join(' - '), steps: steps, cost: cost, hours: hours };
     });
 
-    routes.sort(function(x, y) {
+    routes.sort(function (x, y) {
         return sortMode === 'fastest' ? x.hours - y.hours : x.cost - y.cost;
     });
-    routes = routes.slice(0, 10);
 
     routeDiv.innerHTML = '';
     if (!routes.length) {
@@ -499,142 +467,127 @@ function doSearch() {
         return;
     }
 
-    for (var i = 0; i < routes.length; i++) {
-        var r = routes[i];
-        var card = document.createElement('div');
-        card.className = 'route-card';
-
-        var header = document.createElement('div');
-        header.className = 'route-card-header';
-        var h3 = document.createElement('h3');
-        h3.textContent = buildName(r.segs, a.id);
-        var dur = document.createElement('span');
-        dur.className = 'duration';
-        dur.textContent = fmtHours(r.hours);
-        header.appendChild(h3);
-        header.appendChild(dur);
-        card.appendChild(header);
-
-        var steps = buildSteps(r.segs, a.id);
-        for (var s = 0; s < steps.length; s++) {
-            var step = document.createElement('div');
-            step.className = 'route-step';
-            step.textContent = steps[s];
-            card.appendChild(step);
-        }
-
-        var summary = document.createElement('div');
-        summary.className = 'route-summary';
-        var cost = document.createElement('span');
-        cost.className = 'cost';
-        cost.textContent = fmtCost(r.cost);
-        summary.appendChild(cost);
-        card.appendChild(summary);
-
+    routes.slice(0, 10).forEach(function (r, i) {
+        var card = el('div', { className: 'route-card' });
+        card.innerHTML =
+            '<div class="route-card-header">' +
+                '<h3>' + (i + 1) + '. ' + r.name + '</h3>' +
+                '<span class="duration">' + fmtHours(r.hours) + '</span>' +
+            '</div>' +
+            r.steps.map(function (s) {
+                return '<div class="route-step">' + s + '</div>';
+            }).join('') +
+            '<div class="route-summary"><span class="cost">' + fmtCost(r.cost) + '</span></div>';
         routeDiv.appendChild(card);
-    }
+    });
 }
 
-// ---- Event Listeners ----
 
-// Zoom: CTRL + Scroll
-viewport.addEventListener('wheel', function(e) {
+// ═══════════════════════════════════════
+//  EVENT LISTENERS
+// ═══════════════════════════════════════
+
+// Zoom dengan Ctrl + scroll
+viewport.addEventListener('wheel', function (e) {
     if (!e.ctrlKey) return;
     e.preventDefault();
     zoomAt(e.clientX, e.clientY, e.deltaY < 0 ? 1 : -1);
 }, { passive: false });
 
-// Zoom: CTRL+= / CTRL+- , Delete koneksi terpilih
-document.addEventListener('keydown', function(e) {
+// Ctrl+= zoom in | Ctrl+- zoom out | Delete / Backspace hapus koneksi terpilih
+document.addEventListener('keydown', function (e) {
+    var r  = viewport.getBoundingClientRect();
+    var cx = r.left + r.width  / 2;
+    var cy = r.top  + r.height / 2;
+
     if (e.ctrlKey && (e.key === '+' || e.key === '=')) {
         e.preventDefault();
-        var r = viewport.getBoundingClientRect();
-        zoomAt(r.left + r.width/2, r.top + r.height/2, 1);
+        zoomAt(cx, cy, 1);
     }
     if (e.ctrlKey && e.key === '-') {
         e.preventDefault();
-        var r2 = viewport.getBoundingClientRect();
-        zoomAt(r2.left + r2.width/2, r2.top + r2.height/2, -1);
+        zoomAt(cx, cy, -1);
     }
     if ((e.key === 'Delete' || e.key === 'Backspace') && selectedConn) {
         var tag = document.activeElement ? document.activeElement.tagName : '';
         if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
         e.preventDefault();
-        conns = conns.filter(function(c) { return c.id !== selectedConn; });
+        conns = conns.filter(function (c) { return c.id !== selectedConn; });
         selectedConn = null;
         save();
         renderConns();
     }
 });
 
-// Pan: drag
-viewport.addEventListener('mousedown', function(e) {
+// Klik tahan di peta → mulai pan
+viewport.addEventListener('mousedown', function (e) {
     if (e.button !== 0) return;
-    if (e.target.closest && (e.target.closest('.pin-wrapper') || e.target.closest('.map-popup'))) return;
-    if (hasClass(e.target, 'conn-line')) return;
-    panning = true;
+    if (e.target.closest('.pin-wrapper') || e.target.closest('.map-popup')) return;
+    if (e.target.classList && e.target.classList.contains('conn-line')) return;
+    e.preventDefault();
+    panning    = true;
+    panStartX  = e.clientX;
+    panStartY  = e.clientY;
+    panOriginX = panX;
+    panOriginY = panY;
     viewport.classList.add('panning');
-    panStartX  = e.clientX; panStartY  = e.clientY;
-    panOriginX = panX;      panOriginY = panY;
     selectedConn = null;
     renderConns();
 });
 
-window.addEventListener('mousemove', function(e) {
+window.addEventListener('mousemove', function (e) {
     if (!panning) return;
     panX = panOriginX + (e.clientX - panStartX);
     panY = panOriginY + (e.clientY - panStartY);
     applyTransform();
 });
 
-window.addEventListener('mouseup', function() {
+window.addEventListener('mouseup', function () {
     panning = false;
     viewport.classList.remove('panning');
 });
 
-// Double-click di peta → tambah pinpoint
-viewport.addEventListener('dblclick', function(e) {
-    if (e.target.closest && (e.target.closest('.pin-wrapper') || e.target.closest('.map-popup'))) return;
-    var cls = e.target.className;
-    var clsStr = (typeof cls === 'string') ? cls : (cls && cls.baseVal ? cls.baseVal : '');
-    if (clsStr.indexOf('conn-line') !== -1) return;
+// Double-click di peta → tambah pin baru
+viewport.addEventListener('dblclick', function (e) {
+    if (e.target.closest('.pin-wrapper') || e.target.closest('.map-popup')) return;
     var pos = toMapCoord(e.clientX, e.clientY);
     if (pos.x < 0 || pos.y < 0 || pos.x > MAP_W || pos.y > MAP_H) return;
     showAddPinPopup(pos.x, pos.y);
 });
 
 // Klik area kosong → deselect koneksi
-viewport.addEventListener('click', function(e) {
-    if (e.target.closest && e.target.closest('.map-popup')) return;
-    if (!hasClass(e.target, 'conn-line')) {
+viewport.addEventListener('click', function (e) {
+    if (e.target.closest('.map-popup')) return;
+    if (!e.target.classList || !e.target.classList.contains('conn-line')) {
         selectedConn = null;
         renderConns();
     }
 });
 
-// Sidebar
+// Input From / To → validasi tombol Search
 fromInput.addEventListener('input', validateSearch);
-toInput.addEventListener('input', validateSearch);
+toInput.addEventListener('input',   validateSearch);
 searchBtn.addEventListener('click', doSearch);
 
-btnFastest.addEventListener('click', function() {
-    sortMode = 'fastest';
-    btnFastest.classList.add('active');
-    btnCheapest.classList.remove('active');
-    if (!searchBtn.disabled) doSearch();
-});
-
-btnCheapest.addEventListener('click', function() {
-    sortMode = 'cheapest';
-    btnCheapest.classList.add('active');
-    btnFastest.classList.remove('active');
-    if (!searchBtn.disabled) doSearch();
+// Tombol sort Fastest / Cheapest
+[btnFastest, btnCheapest].forEach(function (btn) {
+    btn.addEventListener('click', function () {
+        sortMode = this === btnFastest ? 'fastest' : 'cheapest';
+        btnFastest.classList.toggle('active',  this === btnFastest);
+        btnCheapest.classList.toggle('active', this === btnCheapest);
+        if (!searchBtn.disabled) doSearch();
+    });
 });
 
 window.addEventListener('resize', fitMap);
 
-// ---- Init ----
+
+// ═══════════════════════════════════════
+//  INISIALISASI
+// ═══════════════════════════════════════
+
 loadMap();
 fitMap();
-renderAll();
+renderConns();
+renderPins();
 validateSearch();
