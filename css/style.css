@@ -1,164 +1,185 @@
-/* ===========================
-   RESET & BASE
-=========================== */
-* { box-sizing: border-box; margin: 0; padding: 0; }
+/* Reset */
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
 
 body {
     display: flex;
-    width: 100vw;
     height: 100vh;
     overflow: hidden;
-    font-family: Arial, sans-serif;
-    font-size: 14px;
-    background: #f0f0f0;
-    color: #222;
+    font-family: sans-serif;
+    font-size: 13px;
 }
 
-/* ===========================
-   SIDEBAR (Find Route)
-=========================== */
+/* ── Sidebar ── */
 #sidebar {
-    width: 280px;
-    flex-shrink: 0;
-    height: 100vh;
-    background: #fff;
+    width: 260px;
+    padding: 10px;
     border-right: 1px solid #ccc;
-    padding: 14px;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 8px;
     overflow: hidden;
 }
 
-#sidebar h2 {
-    font-size: 17px;
-    font-weight: bold;
-    padding-bottom: 10px;
-    border-bottom: 1px solid #ddd;
+.form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
 }
 
-.form-group { display: flex; flex-direction: column; gap: 4px; }
-.form-group label { font-size: 11px; color: #666; text-transform: uppercase; }
-.form-group input {
-    padding: 7px 9px;
+.form-group label {
+    font-size: 11px;
+    color: #666;
+}
+
+/* Style dasar semua input, select, button */
+input, select, button {
+    width: 100%;
+    padding: 5px 7px;
     border: 1px solid #ccc;
-    border-radius: 4px;
     font-size: 13px;
     outline: none;
-    background: #fafafa;
-}
-.form-group input:focus { border-color: #555; }
-
-.sort-group { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #555; }
-.sort-btn {
-    padding: 5px 10px;
-    background: #eee;
-    border: 1px solid #ccc;
-    border-radius: 4px;
-    font-size: 12px;
     cursor: pointer;
-    color: #333;
 }
-.sort-btn.active { background: #333; color: #fff; border-color: #333; }
 
-#search-btn {
-    padding: 9px;
+input:focus, select:focus {
+    border-color: #555;
+}
+
+.sort-group {
+    display: flex;
+    gap: 4px;
+}
+
+.sort-group button {
+    flex: 1;
+}
+
+/* Tombol aktif / search / submit popup — semua warna gelap */
+.sort-btn.active, #search-btn, .popup-submit {
     background: #333;
-    border: none;
-    border-radius: 4px;
     color: #fff;
-    font-weight: bold;
-    cursor: pointer;
-    font-size: 13px;
+    border-color: #333;
 }
-#search-btn:disabled { background: #bbb; color: #777; cursor: not-allowed; }
 
+#search-btn:disabled {
+    background: #aaa;
+    border-color: #aaa;
+    cursor: not-allowed;
+}
+
+/* ── Hasil Rute ── */
 #route-results {
     flex: 1;
     overflow-y: auto;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 6px;
 }
 
 .route-card {
-    background: #f8f8f8;
-    border: 1px solid #ddd;
-    border-radius: 5px;
-    padding: 9px;
+    border: 1px solid #ccc;
+    padding: 7px;
+    font-size: 12px;
 }
+
 .route-card-header {
     display: flex;
     justify-content: space-between;
-    align-items: flex-start;
-    margin-bottom: 5px;
+    margin-bottom: 4px;
+    font-weight: bold;
 }
-.route-card-header h3 { font-size: 12px; font-weight: bold; line-height: 1.3; }
-.route-card-header .duration { font-size: 11px; color: #2563eb; white-space: nowrap; margin-left: 6px; }
+
+.route-card-header .duration {
+    color: #00c;
+    margin-left: 6px;
+    white-space: nowrap;
+}
+
 .route-step {
     font-size: 11px;
     color: #555;
-    padding: 2px 0 2px 8px;
+    padding-left: 8px;
     border-left: 2px solid #ccc;
 }
-.route-summary { margin-top: 6px; border-top: 1px solid #ddd; padding-top: 5px; }
-.route-summary .cost { font-size: 13px; font-weight: bold; color: #16a34a; }
-.no-routes { text-align: center; color: #999; padding: 20px 0; font-size: 12px; }
 
-/* ===========================
-   MAP VIEWPORT
-=========================== */
+.route-summary {
+    margin-top: 5px;
+    border-top: 1px solid #ccc;
+    padding-top: 4px;
+    font-weight: bold;
+    color: #060;
+}
+
+.no-routes {
+    text-align: center;
+    color: #999;
+    padding: 16px 0;
+}
+
+/* ── Viewport (area peta) ── */
 #viewport {
     flex: 1;
-    height: 100vh;
     overflow: hidden;
     position: relative;
     cursor: grab;
-    background: #cde8f5;
+    background: #cde;
+    user-select: none;
 }
-#viewport.panning { cursor: grabbing; }
 
+#viewport.panning {
+    cursor: grabbing;
+}
+
+/* Kontainer yang bisa di-transform (pan & zoom) */
 #map-transform {
     position: absolute;
-    top: 0; left: 0;
+    top: 0;
+    left: 0;
     width: 792.54596px;
     height: 316.66394px;
     transform-origin: 0 0;
 }
 
+/* Semua layer di dalam map-transform ditumpuk */
 #map-layer,
 #connections-layer,
 #pins-layer,
 #popups-layer {
     position: absolute;
-    top: 0; left: 0;
+    top: 0;
+    left: 0;
     width: 792.54596px;
     height: 316.66394px;
 }
-#map-layer         { z-index: 1; }
-#connections-layer { z-index: 2; overflow: visible; }
-#pins-layer        { z-index: 3; pointer-events: none; }
-#popups-layer      { z-index: 5; pointer-events: none; }
 
-.pin-wrapper  { pointer-events: auto !important; }
-.map-popup    { pointer-events: auto !important; }
+#map-layer          { z-index: 1; }
+#connections-layer  { z-index: 2; overflow: visible; }
+#pins-layer         { z-index: 3; pointer-events: none; }
+#popups-layer       { z-index: 5; pointer-events: none; }
 
-#map-layer svg { width: 100%; height: 100%; display: block; }
-#map-layer svg path {
-    fill: #f5deb3;
-    stroke: #aaa;
-    stroke-width: 0.6px;
+#map-layer svg {
+    width: 100%;
+    height: 100%;
 }
 
-/* ===========================
-   CONNECTIONS
-=========================== */
+#map-layer svg path {
+    fill: #9ec;
+    stroke: #fff;
+    stroke-width: 0.5px;
+}
+
+/* ── Garis Koneksi (SVG) ── */
 .conn-line {
     fill: none;
     stroke-width: 3;
     cursor: pointer;
     pointer-events: stroke;
 }
+
 .conn-line.selected {
     stroke-width: 5;
     stroke-dasharray: 6 3;
@@ -173,9 +194,7 @@ body {
     pointer-events: none;
 }
 
-/* ===========================
-   PINS
-=========================== */
+/* ── Pin ── */
 .pin-wrapper {
     position: absolute;
     display: flex;
@@ -185,10 +204,10 @@ body {
     pointer-events: auto;
 }
 
-.pin-icon { width: 20px; height: 30px; display: block; cursor: pointer; }
-
-.pin-wrapper.connecting .pin-icon {
-    filter: drop-shadow(0 0 5px #f59e0b);
+.pin-icon {
+    width: 18px;
+    height: 27px;
+    cursor: pointer;
 }
 
 .pin-label {
@@ -196,87 +215,57 @@ body {
     align-items: center;
     gap: 3px;
     background: #fff;
-    border: 1px solid #bbb;
-    border-radius: 4px;
-    padding: 2px 6px;
+    border: 1px solid #999;
+    padding: 1px 5px;
     font-size: 11px;
     white-space: nowrap;
-    margin-bottom: 2px;
+    margin-bottom: 1px;
     cursor: pointer;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
 }
+
+/* Pin yang sedang dalam mode connecting */
 .pin-wrapper.connecting .pin-label {
-    border-color: #f59e0b;
-    background: #fffbeb;
+    border-color: orange;
+    background: #ffe;
 }
 
 .pin-btn {
     border: none;
     background: transparent;
-    color: #555;
-    border-radius: 3px;
-    width: 16px; height: 16px;
     font-size: 11px;
     cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
     padding: 0;
+    width: 15px;
+    height: 15px;
 }
-.pin-btn:hover { background: #eee; color: #000; }
 
-/* ===========================
-   POPUP
-=========================== */
+/* ── Popup ── */
 .map-popup {
     position: absolute;
     background: #fff;
-    border: 1px solid #ccc;
-    border-radius: 6px;
-    padding: 10px;
-    width: 210px;
+    border: 1px solid #999;
+    padding: 8px;
+    width: 200px;
     pointer-events: auto;
     transform: translate(-50%, -110%);
     z-index: 200;
     display: flex;
     flex-direction: column;
-    gap: 7px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    gap: 5px;
 }
+
 .popup-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    border-bottom: 1px solid #eee;
-    padding-bottom: 6px;
-}
-.popup-header h3 { font-size: 13px; font-weight: bold; }
-.popup-close {
-    border: none; background: transparent;
-    color: #999; font-size: 16px; cursor: pointer; line-height: 1;
-}
-.popup-close:hover { color: #333; }
-
-.map-popup input,
-.map-popup select {
-    width: 100%;
-    padding: 6px 8px;
-    border: 1px solid #ccc;
-    border-radius: 4px;
-    font-size: 12px;
-    outline: none;
-    background: #fafafa;
-}
-.map-popup input:focus,
-.map-popup select:focus { border-color: #555; }
-
-.popup-submit {
-    width: 100%;
-    padding: 7px;
-    background: #333;
-    border: none;
-    border-radius: 4px;
-    color: #fff;
+    border-bottom: 1px solid #ddd;
+    padding-bottom: 5px;
     font-weight: bold;
-    cursor: pointer;
-    font-size: 12px;
 }
-.popup-submit:hover { background: #555; }
+
+.popup-close {
+    border: none;
+    background: transparent;
+    font-size: 16px;
+    cursor: pointer;
+}
